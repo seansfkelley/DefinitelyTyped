@@ -6,9 +6,12 @@
     "generate": "ts-node generate"
   },
   "devDependencies": {
+    "@types/lodash": "^4.14.117",
+    "@types/prettier": "^1.13.2",
     "axios": "^0.18.0",
+    "lodash": "^4.17.11",
+    "prettier": "^1.14.3",
     "ts-node": "^7.0.1",
     "typescript": "^3.1.3"
-  },
-  "dependencies": {}
+  }
 }
