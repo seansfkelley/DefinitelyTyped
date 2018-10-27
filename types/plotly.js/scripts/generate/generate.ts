@@ -67,20 +67,24 @@ export default function generate(schema: any) {
             } else if (data.valType === "integer" || data.valType === "number" || data.valType === "angle") {
                 writeAttribute(data.arrayOk ? "OneOrMany<number>" : "number");
             } else if (data.valType === "enumerated") {
-                writeAttribute(
-                    uniq(
-                        (data.values as any[]).map(v => {
-                            if (v === "/^x([2-9]|[1-9][0-9]+)?$/") {
-                                return "AxisName";
-                            } else if (v === "/^y([2-9]|[1-9][0-9]+)?$/") {
-                                return "AxisName";
-                            } else {
-                                return JSON.stringify(v);
-                            }
-                        })
-                    )
-                    .join(" | ")
-                );
+                if (data.values.includes("gregorian")) {
+                    writeAttribute("Calendar");
+                } else {
+                    writeAttribute(
+                        uniq(
+                            (data.values as any[]).map(v => {
+                                if (v === "/^x([2-9]|[1-9][0-9]+)?$/") {
+                                    return "AxisName";
+                                } else if (v === "/^y([2-9]|[1-9][0-9]+)?$/") {
+                                    return "AxisName";
+                                } else {
+                                    return JSON.stringify(v);
+                                }
+                            })
+                        )
+                        .join(" | ")
+                    );
+                }
             } else if (data.valType === "string" || data.valType === "color") {
                 const type = data.values
                     ? [
@@ -115,6 +119,7 @@ export default function generate(schema: any) {
         }
     }
 
+    // TODO: Crank up tslint rules.
     write(`
     // Generated from Plotly.js version ${"hallo"}
 
@@ -122,9 +127,28 @@ export default function generate(schema: any) {
     /* tslint:disable:member-ordering */
 
     export type OneOrMany<T> = T[] | T;
+
     export type Datum = string | number | Date | null;
+
     export type TypedArray = Int8Array | Uint8Array | Int16Array | Uint16Array | Int32Array | Uint32Array | Uint8ClampedArray | Float32Array | Float64Array;
 
+    export type Calendar =
+        | "gregorian"
+        | "chinese"
+        | "coptic"
+        | "discworld"
+        | "ethiopian"
+        | "hebrew"
+        | "islamic"
+        | "julian"
+        | "mayan"
+        | "nanakshahi"
+        | "nepali"
+        | "persian"
+        | "jalali"
+        | "taiwan"
+        | "thai"
+        | "ummalqura";
     `);
 
     forEach(schema.traces, (trace: Trace, name) => {
