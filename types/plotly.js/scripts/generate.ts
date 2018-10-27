@@ -3,7 +3,7 @@
 import axios from "axios";
 import { writeFileSync, unlinkSync } from "fs";
 import { join } from "path";
-import { forEach, isString, omit, isArray } from "lodash";
+import { forEach, isString, omit, isArray, flatMap, range, uniq } from "lodash";
 import { format } from "prettier";
 
 // https://api.plot.ly/v2/plot-schema
@@ -86,7 +86,20 @@ function generate(schema: any) {
                 } else if (data.valType === "integer" || data.valType === "number" || data.valType === "angle") {
                     writeAttribute(data.arrayOk ? "OneOrMany<number>" : "number");
                 } else if (data.valType === "enumerated") {
-                    writeAttribute((data.values as any[]).map(v => JSON.stringify(v)).join(" | "));
+                    writeAttribute(
+                        uniq(
+                            (data.values as any[]).map(v => {
+                                if (v === "/^x([2-9]|[1-9][0-9]+)?$/") {
+                                    return "AxisName";
+                                } else if (v === "/^y([2-9]|[1-9][0-9]+)?$/") {
+                                    return "AxisName";
+                                } else {
+                                    return JSON.stringify(v);
+                                }
+                            })
+                        )
+                        .join(" | ")
+                    );
                 } else if (data.valType === "string" || data.valType === "color") {
                     const type = data.values
                         ? [
@@ -146,6 +159,16 @@ function generate(schema: any) {
         forEach(omit(trace.attributes, "type", attributeMetaKeys), createAttributeWriter());
         write(`}`);
     });
+
+    write(`
+    export type AxisName =
+        | 'x' | 'x2' | 'x3' | 'x4' | 'x5' | 'x6' | 'x7' | 'x8' | 'x9'
+        | 'y' | 'y2' | 'y3' | 'y4' | 'y5' | 'y6' | 'y7' | 'y8' | 'y9';
+    `);
+
+    write(`export interface Layout {`);
+    forEach(omit(schema.layout.layoutAttributes, attributeMetaKeys), createAttributeWriter());
+    write(`}`);
 
     return format(fileContent, {
         parser: "typescript",
