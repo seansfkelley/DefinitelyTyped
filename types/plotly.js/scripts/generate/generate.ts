@@ -1,6 +1,6 @@
-import { forEach, isString, omit, isArray, uniq, size } from "lodash";
-import { format } from "prettier";
+import { forEach, isString, omit, isArray, uniq, size, range, sortBy } from "lodash";
 import writer from "./writer";
+import { string } from "parsimmon";
 
 interface Trace {
     meta: {
@@ -19,9 +19,6 @@ interface Attribute {
     description: string;
     [key: string]: any;
 }
-
-// TODO: Read from file.
-const sha1 = '';
 
 export default function generate(schema: any) {
     const write = writer();
@@ -100,8 +97,17 @@ export default function generate(schema: any) {
             } else if (data.valType === "data_array") {
                 writeAttribute("Datum[] | TypedArray");
             } else if (data.valType === "flaglist") {
-                // TODO: Generate permutations.
-                writeAttribute("string");
+                const permutations = sortBy(
+                    range(1, Math.pow(2, data.flags.length - 1))
+                        .map(bitmap => (data.flags as string[]).filter((_, index) => (bitmap & (1 << index)) != 0)),
+                    'length');
+
+                const type = permutations
+                    .map(items => JSON.stringify(items.join("+")))
+                    .concat((data.extras as string[] || []).map(item => JSON.stringify(item)))
+                    .join(" | ");
+
+                writeAttribute(data.arrayOk ? `OneOrMany<${type}>` : type);
             } else if (data.valType === "info_array") {
                 // TODO: Inspect the types of the items.
                 // TODO: Is this actually a tuple type?

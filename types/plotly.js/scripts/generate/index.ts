@@ -15,13 +15,18 @@ type PlotlySchemaResponse = {
     modified: false;
 };
 
+
+const generatedTsd = generate(require(join(__dirname, "plotly.json")).schema);
+
 const OUTPUT_PATH = join(__dirname, "..", "..", "index-generated.d.ts");
 
 try {
     unlinkSync(OUTPUT_PATH);
 } catch {}
-writeFileSync(OUTPUT_PATH, generate(require(join(__dirname, "plotly.json")).schema));
+writeFileSync(OUTPUT_PATH, generatedTsd);
 
+// TODO: Read from file.
+const sha1 = '';
 
 // axios.get(`https://api.plot.ly/v2/plot-schema?sha1={sha1}`)
 //     .then(response => {

@@ -3,7 +3,7 @@
   "name": "plotly.js-scripts",
   "version": "0.0.1",
   "scripts": {
-    "generate": "ts-node generate"
+    "generate": "TS_NODE_COMPILER_OPTIONS='{ \"target\": \"ES6\" }' ts-node generate"
   },
   "devDependencies": {
     "@types/lodash": "^4.14.117",
