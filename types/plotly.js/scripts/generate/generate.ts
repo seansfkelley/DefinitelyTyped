@@ -1,6 +1,10 @@
-import { forEach, isString, omit, isArray, uniq, size, range, sortBy } from "lodash";
+/// <reference types="node" />
+
+import { readFileSync } from "fs";
+import { join } from "path";
+import { forEach, isString, omit, isArray, uniq, size, range, sortBy, isEqual, values, map, keys } from "lodash";
+
 import writer from "./writer";
-import { string } from "parsimmon";
 
 interface Trace {
     meta: {
@@ -18,6 +22,24 @@ interface Attribute {
     role: string;
     description: string;
     [key: string]: any;
+}
+
+const namedEnumerations: Record<string, { name: string; values?: string[]; }> = {
+    "gregorian": {
+        name: "Calendar",
+    },
+    "circle-open-dot": {
+        name: "MarkerSymbol",
+    }
+};
+
+const namedObjectTypes: Record<string, string[]> = {
+    "Font": ["family", "size", "color"],
+    "Point": ["x", "y", "z"],
+}
+
+function setEquality(a: string[], b: string[]) {
+    return isEqual(sortBy(a), sortBy(b));
 }
 
 export default function generate(schema: any) {
@@ -55,34 +77,55 @@ export default function generate(schema: any) {
         writeDocComment(data.description, data.dflt == null ? {} : { 'default': data.dflt });
 
         if (data.role === "object") {
-            write(`${name}?: {`);
-            forEach(omit(data, attributeMetaKeys), recursivelyWriteAttributes);
-            write("}");
+            const attributes = omit(data, attributeMetaKeys);
+            const objectTypeName = keys(namedObjectTypes).find(objectType => {
+                return setEquality(namedObjectTypes[objectType], keys(attributes));
+            })
+            if (objectTypeName != null) {
+                writeAttribute(objectTypeName);
+            } else {
+                write(`${name}?: {`);
+                forEach(attributes, recursivelyWriteAttributes);
+                write("}");
+            }
         } else {
             if (data.valType === "boolean") {
                 writeAttribute("boolean");
             } else if (data.valType === "integer" || data.valType === "number" || data.valType === "angle") {
                 writeAttribute(data.arrayOk ? "OneOrMany<number>" : "number");
             } else if (data.valType === "enumerated") {
-                if (data.values.includes("gregorian")) {
-                    writeAttribute("Calendar");
-                } else {
-                    writeAttribute(
-                        uniq(
-                            (data.values as any[]).map(v => {
-                                if (v === "/^x([2-9]|[1-9][0-9]+)?$/") {
-                                    return "AxisName";
-                                } else if (v === "/^y([2-9]|[1-9][0-9]+)?$/") {
-                                    return "AxisName";
-                                } else {
-                                    return JSON.stringify(v);
-                                }
-                            })
-                        )
-                        .join(" | ")
-                    );
+                const values: string[] = data.values;
+
+                const namedEnumeration = values.map(v => namedEnumerations[v]).find(e => e != null);
+                if (namedEnumeration != null) {
+                    const sortedValues = sortBy(values);
+                    if (namedEnumeration.values == null) {
+                        namedEnumeration.values = sortedValues;
+                        writeAttribute(namedEnumeration.name);
+                        return;
+                    } else if (isEqual(namedEnumeration.values, sortedValues)) {
+                        writeAttribute(namedEnumeration.name);
+                        return;
+                    }
                 }
-            } else if (data.valType === "string" || data.valType === "color") {
+
+                writeAttribute(
+                    uniq(
+                        values.map(v => {
+                            if (v === "/^x([2-9]|[1-9][0-9]+)?$/") {
+                                return "AxisName";
+                            } else if (v === "/^y([2-9]|[1-9][0-9]+)?$/") {
+                                return "AxisName";
+                            } else {
+                                return JSON.stringify(v);
+                            }
+                        })
+                    )
+                    .join(" | ")
+                );
+            } else if (data.valType === "color") {
+                writeAttribute("Color");
+            } else if (data.valType === "string") {
                 const type = data.values
                     ? [
                         ...(data.values as any[]).map(v => JSON.stringify(v)),
@@ -125,57 +168,37 @@ export default function generate(schema: any) {
         }
     }
 
-    // TODO: Crank up tslint rules.
-    write(`
-    // Generated from Plotly.js version ${"hallo"}
+    function getDataTypeName(traceName: string) {
+        return `${traceName[0].toUpperCase() + traceName.slice(1)}Data`;
+    }
 
-    /* tslint:disable:max-line-length */
-    /* tslint:disable:member-ordering */
+    write(readFileSync(join(__dirname, "header_d.ts")).toString("utf-8"));
+    write(readFileSync(join(__dirname, "globals_d.ts")).toString("utf-8"));
 
-    export type OneOrMany<T> = T[] | T;
-
-    export type Datum = string | number | Date | null;
-
-    export type TypedArray = Int8Array | Uint8Array | Int16Array | Uint16Array | Int32Array | Uint32Array | Uint8ClampedArray | Float32Array | Float64Array;
-
-    export type Calendar =
-        | "gregorian"
-        | "chinese"
-        | "coptic"
-        | "discworld"
-        | "ethiopian"
-        | "hebrew"
-        | "islamic"
-        | "julian"
-        | "mayan"
-        | "nanakshahi"
-        | "nepali"
-        | "persian"
-        | "jalali"
-        | "taiwan"
-        | "thai"
-        | "ummalqura";
-    `);
+    write(`export type Data = ${map(schema.traces, (_, name) => getDataTypeName(name)).join(" | ")};`);
 
     forEach(schema.traces, (trace: Trace, name) => {
         if (trace.meta) {
             writeDocComment(trace.meta.description);
         }
-        write(`export interface ${name[0].toUpperCase() + name.slice(1)}Data {`);
+        write(`export interface ${getDataTypeName(name)} {`);
         write(`type: "${trace.attributes.type}";\n`);
         forEach(omit(trace.attributes, "type", attributeMetaKeys), recursivelyWriteAttributes);
         write(`}`);
     });
 
-    write(`
-    export type AxisName =
-        | 'x' | 'x2' | 'x3' | 'x4' | 'x5' | 'x6' | 'x7' | 'x8' | 'x9'
-        | 'y' | 'y2' | 'y3' | 'y4' | 'y5' | 'y6' | 'y7' | 'y8' | 'y9';
-    `);
-
     write(`export interface Layout {`);
     forEach(omit(schema.layout.layoutAttributes, attributeMetaKeys), recursivelyWriteAttributes);
     write(`}`);
+
+    values(namedEnumerations).map(({ name, values }) => {
+        if (values != null) {
+            write(`type ${name} = ${values.map(v => JSON.stringify(v)).join(" | ")};`);
+            write('');
+        }
+    });
+
+    write(readFileSync(join(__dirname, "events_d.ts")).toString("utf-8"));
 
     return write.format();
 }
