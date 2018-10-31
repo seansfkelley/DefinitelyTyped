@@ -19,8 +19,8 @@ import {
 
 import writer from "./writer";
 
-interface Trace {
-    meta: {
+interface AttributedObject {
+    meta?: {
         description: string;
     };
     attributes: {
@@ -214,19 +214,27 @@ export default function generate(schema: any) {
         );
 
         if (data.role === "object") {
-            const attributes = omit(data, attributeMetaKeys);
-            const objectTypeName = keys(NAMED_OBJECT_TYPES).find(objectType =>
-                isEqualUnordered(
-                    NAMED_OBJECT_TYPES[objectType],
-                    keys(attributes)
-                )
-            );
-            if (objectTypeName != null) {
-                writeAttribute(objectTypeName);
+            if (name === "transforms") {
+                writeAttribute("Transform[]");
+            } else if ("items" in data) {
+                // TODO: Recursively create a type for this and reference it.
+                writeAttribute("any[]");
             } else {
-                write(`${name}?: {`);
-                forEach(attributes, recursivelyWriteAttributes);
-                write("}");
+                const attributes = omit(data, attributeMetaKeys);
+                const objectTypeName = keys(NAMED_OBJECT_TYPES).find(
+                    objectType =>
+                        isEqualUnordered(
+                            NAMED_OBJECT_TYPES[objectType],
+                            keys(attributes)
+                        )
+                );
+                if (objectTypeName != null) {
+                    writeAttribute(objectTypeName);
+                } else {
+                    write(`${name}?: {`);
+                    forEach(attributes, recursivelyWriteAttributes);
+                    write("}");
+                }
             }
         } else {
             const type = getAttributeType(data);
@@ -246,6 +254,11 @@ export default function generate(schema: any) {
         return `${traceName[0].toUpperCase() + traceName.slice(1)}Data`;
     }
 
+    function getTransformName(transformName: string) {
+        return `${transformName[0].toUpperCase() +
+            transformName.slice(1)}Transform`;
+    }
+
     write(readFileSync(join(__dirname, "header_d.ts")).toString("utf-8"));
     write(readFileSync(join(__dirname, "globals_d.ts")).toString("utf-8"));
 
@@ -255,7 +268,7 @@ export default function generate(schema: any) {
         ).join(" | ")};`
     );
 
-    forEach(schema.traces, (trace: Trace, name) => {
+    forEach(schema.traces, (trace: AttributedObject, name) => {
         if (trace.meta) {
             writeDocComment(trace.meta.description);
         }
@@ -265,19 +278,20 @@ export default function generate(schema: any) {
             omit(trace.attributes, "type", attributeMetaKeys),
             recursivelyWriteAttributes
         );
-        write(`}`);
+        write("}\n");
     });
 
     forEach(NAMED_FLAG_LISTS, (flags, name) => {
         write(`type ${name} = ${generateFlagListType(flags)};`);
     });
+    write("");
 
     write(`export interface Layout {`);
     forEach(
         omit(schema.layout.layoutAttributes, attributeMetaKeys),
         recursivelyWriteAttributes
     );
-    write(`}`);
+    write("}\n");
 
     values(namedEnumerations).map(({ name, values }) => {
         if (values != null) {
@@ -288,6 +302,25 @@ export default function generate(schema: any) {
             );
             write("");
         }
+    });
+
+    write(
+        `export type Transform = ${map(schema.transforms, (_, name) =>
+            getTransformName(name)
+        ).join(" | ")};`
+    );
+    write("");
+
+    forEach(schema.transforms, (transform: AttributedObject, name) => {
+        if (transform.meta) {
+            writeDocComment(transform.meta.description);
+        }
+        write(`export interface ${getTransformName(name)} {`);
+        forEach(
+            omit(transform.attributes, attributeMetaKeys),
+            recursivelyWriteAttributes
+        );
+        write("}\n");
     });
 
     write(readFileSync(join(__dirname, "events_d.ts")).toString("utf-8"));
