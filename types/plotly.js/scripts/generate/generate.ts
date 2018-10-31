@@ -57,6 +57,8 @@ const NAMED_OBJECT_TYPES: Record<string, string[]> = {
 // This is analogous to NAMED_OBJECT_TYPES above, except it's used to inspect the set of legal values
 // for a flag-list type rather than the fields on an object type.
 const NAMED_FLAG_LISTS: Record<string, string[]> = {
+    // TODO: This isn't being referenced where it should be, and it's not being generated with the last
+    // 'text' option either.
     ThreeDHoverInfo: ["x", "y", "z", "text"],
     ConeHoverInfo: ["x", "y", "z", "u", "v", "w", "text", "norm"],
     StreamtubeHoverInfo: [
