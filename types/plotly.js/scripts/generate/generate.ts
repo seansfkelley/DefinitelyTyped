@@ -43,6 +43,14 @@ interface Attribute {
 // of this exact set of fields is considered sufficient evidence that it's the type in question.
 const NAMED_OBJECT_TYPES: Record<string, string[]> = {
     Font: ["family", "size", "color"],
+    SourcedFont: [
+        "family",
+        "size",
+        "color",
+        "familysrc",
+        "sizesrc",
+        "colorsrc"
+    ],
     Point: ["x", "y", "z"]
 };
 
