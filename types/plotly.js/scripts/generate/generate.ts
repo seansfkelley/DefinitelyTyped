@@ -91,6 +91,9 @@ const namedEnumerations: Record<string, { name: string; values?: string[] }> = {
     }
 };
 
+// TODO: This, for layouts and such.
+const EXPLICIT_AXIS_COUNT = 9;
+
 function isEqualUnordered(a: string[], b: string[]) {
     return isEqual(sortBy(a), sortBy(b));
 }
@@ -108,6 +111,11 @@ function generateFlagListType(flags: string[], extras?: string[]) {
         .concat(extras || [])
         .map(item => JSON.stringify(item))
         .join(" | ");
+}
+
+// TODO: Use this in more places.
+function generateLiteralUnionType(members: (boolean | string | number)[]) {
+    return members.map(m => JSON.stringify(m)).join(" | ");
 }
 
 function getAttributeType(attribute: Attribute): string | undefined {
@@ -303,6 +311,15 @@ export default function generate(schema: any) {
         write(`type ${name} = ${generateFlagListType(flags)};`);
     });
     write("");
+
+    write(
+        `export type AxisName = ${generateLiteralUnionType([
+            "x",
+            ...range(2, EXPLICIT_AXIS_COUNT + 1).map(i => `x${i}`),
+            "y",
+            ...range(2, EXPLICIT_AXIS_COUNT + 1).map(i => `y${i}`)
+        ])};`
+    );
 
     write(`export interface Layout {`);
     forEach(
