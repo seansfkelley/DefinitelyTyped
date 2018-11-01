@@ -334,6 +334,7 @@ export default function generate(schema: any) {
             writeDocComment(transform.meta.description);
         }
         write(`export interface ${getTransformName(name)} {`);
+        write(`type: "${name}";\n`);
         forEach(
             omit(transform.attributes, attributeMetaKeys),
             recursivelyWriteAttributes
