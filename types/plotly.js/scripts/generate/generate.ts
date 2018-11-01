@@ -57,10 +57,8 @@ const NAMED_OBJECT_TYPES: Record<string, string[]> = {
 // This is analogous to NAMED_OBJECT_TYPES above, except it's used to inspect the set of legal values
 // for a flag-list type rather than the fields on an object type.
 const NAMED_FLAG_LISTS: Record<string, string[]> = {
-    // TODO: This isn't being referenced where it should be, and it's not being generated with the last
-    // 'text' option either.
-    ThreeDHoverInfo: ["x", "y", "z", "text"],
-    ConeHoverInfo: ["x", "y", "z", "u", "v", "w", "text", "norm"],
+    ThreeDHoverInfo: ["x", "y", "z", "text", "name"],
+    ConeHoverInfo: ["x", "y", "z", "u", "v", "w", "norm", "text", "name"],
     StreamtubeHoverInfo: [
         "x",
         "y",
@@ -68,10 +66,12 @@ const NAMED_FLAG_LISTS: Record<string, string[]> = {
         "u",
         "v",
         "w",
-        "text",
         "norm",
-        "divergence"
-    ]
+        "divergence",
+        "text",
+        "name"
+    ],
+    PolarHoverInfo: ["r", "theta", "text", "name"]
 };
 
 // Unlike NAMED_OBJECT_TYPES and NAMED_FLAG_LISTS, these enumeration types are not fully specified here.
@@ -97,7 +97,7 @@ function isEqualUnordered(a: string[], b: string[]) {
 
 function generateFlagListType(flags: string[], extras?: string[]) {
     const permutations = sortBy(
-        range(1, Math.pow(2, flags.length - 1)).map(bitmap =>
+        range(1, Math.pow(2, flags.length)).map(bitmap =>
             flags.filter((_, index) => (bitmap & (1 << index)) != 0)
         ),
         "length"
@@ -150,7 +150,7 @@ function getAttributeType(attribute: Attribute): string | undefined {
         }
 
         // Special-case AxisName because it appears in several positions with slightly different
-        // "other" options, and so it's a pain to define named enumerations for it like normal.
+        // "other" options, and so it's a pain to define named enumerations like other enumerations.
         return uniq(
             values.map(v => {
                 if (v === "/^x([2-9]|[1-9][0-9]+)?$/") {
@@ -163,13 +163,21 @@ function getAttributeType(attribute: Attribute): string | undefined {
             })
         ).join(" | ");
     } else if (attribute.valType === "flaglist") {
+        // At least one flaglist has duplicate values. :/
+        const flags = uniq(attribute.flags as string[]);
+
         const namedFlagList = keys(NAMED_FLAG_LISTS).find(name =>
-            isEqualUnordered(NAMED_FLAG_LISTS[name], attribute.flags)
+            isEqualUnordered(NAMED_FLAG_LISTS[name], flags)
         );
 
         return namedFlagList == null
-            ? generateFlagListType(attribute.flags, attribute.extras)
-            : namedFlagList;
+            ? generateFlagListType(flags, attribute.extras)
+            : [
+                  namedFlagList,
+                  ...((attribute.extras as string[]) || []).map(e =>
+                      JSON.stringify(e)
+                  )
+              ].join(" | ");
     } else if (attribute.valType === "info_array") {
         // TODO: Inspect the types of the items.
         // TODO: Is this actually a tuple type?
