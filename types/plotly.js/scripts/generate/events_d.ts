@@ -19,8 +19,6 @@ export interface SelectionRange {
     y: number[];
 }
 
-export type PlotSelectedData = Partial<PlotDatum>;
-
 export interface PlotSelectionEvent {
     points: PlotDatum[];
     range?: SelectionRange;
@@ -32,11 +30,6 @@ export type PlotRestyleEvent = [
     number[] // array of traces updated
 ];
 
-export interface PlotAxis {
-    range: [number, number];
-    autorange: boolean;
-}
-
 export interface PlotScene {
     center: Point;
     eye: Point;
@@ -44,9 +37,13 @@ export interface PlotScene {
 }
 
 export interface PlotRelayoutEvent {
-    xaxis: PlotAxis;
-    yaxis: PlotAxis;
-    scene: PlotScene;
+    "xaxis.range[0]"?: number;
+    "xaxis.range[1]"?: number;
+    "xaxis.autorange"?: true;
+    "yaxis.range[0]"?: number;
+    "yaxis.range[1]"?: number;
+    "yaxis.autorange"?: true;
+    scene?: PlotScene;
 }
 
 export interface ClickAnnotationEvent {
