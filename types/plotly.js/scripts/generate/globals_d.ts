@@ -1,5 +1,8 @@
 import * as _d3 from "d3";
+
 export as namespace Plotly;
+
+export const d3: typeof _d3;
 
 export interface StaticPlots {
     resize(root: Root): void;
@@ -95,8 +98,6 @@ export function deleteFrames(
     frames: number[]
 ): Promise<PlotlyHTMLElement>;
 
-export const d3: typeof _d3;
-
 export type OneOrMany<T> = T[] | T;
 export type Datum = string | number | Date | null;
 export type TypedArray =
@@ -158,17 +159,6 @@ export interface Icon {
     path: string;
     ascent: number;
     descent: number;
-}
-
-export interface PlotScatterDataPoint {
-    curveNumber: number;
-    data: Data;
-    pointIndex: number;
-    pointNumber: number;
-    x: number;
-    xaxis: LayoutAxis;
-    y: number;
-    yaxis: LayoutAxis;
 }
 
 export type ModeBarDefaultButtons =

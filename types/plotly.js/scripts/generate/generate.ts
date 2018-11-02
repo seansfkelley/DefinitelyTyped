@@ -14,7 +14,8 @@ import {
     isEqual,
     values,
     map,
-    keys
+    keys,
+    difference
 } from "lodash";
 
 import writer from "./writer";
@@ -222,6 +223,16 @@ export default function generate(schema: any) {
         }
     }
 
+    function recursivelyWriteObjectType(
+        data: object,
+        ...omitKeys: (string | string[])[]
+    ) {
+        forEach(
+            omit(data, attributeMetaKeys, ...omitKeys),
+            recursivelyWriteAttributes
+        );
+    }
+
     function recursivelyWriteAttributes(
         data: string | Attribute,
         name: string
@@ -300,10 +311,7 @@ export default function generate(schema: any) {
         }
         write(`export interface ${getDataTypeName(name)} {`);
         write(`type: "${trace.attributes.type}";\n`);
-        forEach(
-            omit(trace.attributes, "type", attributeMetaKeys),
-            recursivelyWriteAttributes
-        );
+        recursivelyWriteObjectType(trace.attributes, "type");
         write("}\n");
     });
 
@@ -321,11 +329,32 @@ export default function generate(schema: any) {
         ])};`
     );
 
-    write(`export interface Layout {`);
-    forEach(
-        omit(schema.layout.layoutAttributes, attributeMetaKeys),
-        recursivelyWriteAttributes
+    write("export interface LayoutXAxis {");
+    recursivelyWriteObjectType(schema.layout.layoutAttributes.xaxis);
+    write("}\n");
+
+    write("export interface LayoutYAxis {");
+    recursivelyWriteObjectType(schema.layout.layoutAttributes.yaxis);
+    write("}\n");
+
+    write("export interface Layout {");
+    recursivelyWriteObjectType(
+        schema.layout.layoutAttributes,
+        "xaxis",
+        "yaxis"
     );
+    [
+        "xaxis",
+        ...range(2, EXPLICIT_AXIS_COUNT + 1).map(i => `xaxis${i}`)
+    ].forEach(axis => {
+        write(`${axis}?: LayoutXAxis`);
+    });
+    [
+        "yaxis",
+        ...range(2, EXPLICIT_AXIS_COUNT + 1).map(i => `yaxis${i}`)
+    ].forEach(axis => {
+        write(`${axis}?: LayoutYAxis`);
+    });
     write("}\n");
 
     values(namedEnumerations).map(({ name, values }) => {
@@ -352,10 +381,7 @@ export default function generate(schema: any) {
         }
         write(`export interface ${getTransformName(name)} {`);
         write(`type: "${name}";\n`);
-        forEach(
-            omit(transform.attributes, attributeMetaKeys),
-            recursivelyWriteAttributes
-        );
+        recursivelyWriteObjectType(transform.attributes);
         write("}\n");
     });
 
