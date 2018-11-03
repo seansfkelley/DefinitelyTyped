@@ -15,7 +15,7 @@ import {
     values,
     map,
     keys,
-    difference
+    compact
 } from "lodash";
 
 import writer from "./writer";
@@ -52,7 +52,8 @@ const NAMED_OBJECT_TYPES: Record<string, string[]> = {
         "sizesrc",
         "colorsrc"
     ],
-    Point: ["x", "y", "z"]
+    Point: ["x", "y", "z"],
+    Transition: ["duration", "easing"]
 };
 
 // This is analogous to NAMED_OBJECT_TYPES above, except it's used to inspect the set of legal values
@@ -119,7 +120,24 @@ function generateLiteralUnionType(members: (boolean | string | number)[]) {
     return members.map(m => JSON.stringify(m)).join(" | ");
 }
 
-function getAttributeType(attribute: Attribute): string | undefined {
+function generateDocComment(content: string, tags?: Record<string, string>) {
+    if (content || (tags && size(tags) > 0)) {
+        return compact([
+            "/**",
+            content ? ` * ${content}` : undefined,
+            ...map(tags, (value, name) => {
+                if (value != null) {
+                    return ` * @${name} ${JSON.stringify(value)}`;
+                }
+            }),
+            "*/"
+        ]).join("\n");
+    } else {
+        return "";
+    }
+}
+
+function generateType(attribute: Attribute): string | undefined {
     if (attribute.valType === "boolean") {
         return "boolean";
     } else if (
@@ -203,88 +221,81 @@ function getAttributeType(attribute: Attribute): string | undefined {
     }
 }
 
+function generateComplexType(
+    attribute: Attribute,
+    attributeMetaKeys: string[]
+): string | undefined {
+    if (attribute.role === "object") {
+        if ("items" in attribute) {
+            if (size(attribute.items) !== 1) {
+                throw new Error(
+                    "cannot generate array type for more than one item type"
+                );
+            }
+            const itemName = Object.keys(attribute.items)[0];
+            if (itemName === "transform") {
+                return "Transform[]";
+            } else {
+                console.warn(
+                    `using fall-back any[] type for item-type "${itemName}"`
+                );
+                return "any[]";
+            }
+        } else {
+            const attributes = omit(attribute, attributeMetaKeys);
+            const objectTypeName = keys(NAMED_OBJECT_TYPES).find(objectType =>
+                isEqualUnordered(
+                    NAMED_OBJECT_TYPES[objectType],
+                    keys(attributes)
+                )
+            );
+            if (objectTypeName != null) {
+                return objectTypeName;
+            } else {
+                return `{\n${map(attributes, (attr, field) =>
+                    generateField(attr, field, attributeMetaKeys)
+                ).join("\n")}\n}\n`;
+            }
+        }
+    } else {
+        const type = generateType(attribute);
+        if (type == null) {
+            console.warn(
+                `could not generate for valType ${JSON.stringify(
+                    attribute.valType
+                )}`
+            );
+            // TODO
+            return undefined;
+        } else {
+            return attribute.arrayOk ? `OneOrMany<${type}>` : type;
+        }
+    }
+}
+
+function generateField(
+    attribute: Attribute,
+    fieldName: string,
+    attributeMetaKeys: string[]
+) {
+    return `${generateDocComment(
+        attribute.description,
+        attribute.dflt == null ? {} : { default: attribute.dflt }
+    )}\n${fieldName}?: ${generateComplexType(attribute, attributeMetaKeys)};\n`;
+}
+
 export default function generate(schema: any) {
     const write = writer();
 
     const attributeMetaKeys = [...schema.defs.metaKeys, "valType"];
 
-    function writeDocComment(content: string, tags?: Record<string, string>) {
-        if (content || (tags && size(tags) > 0)) {
-            write("/**");
-            if (content) {
-                write(` * ${content}`);
-            }
-            forEach(tags, (value, name) => {
-                if (value != null) {
-                    write(` * @${name} ${JSON.stringify(value)}`);
-                }
-            });
-            write("*/");
-        }
-    }
-
-    function recursivelyWriteObjectType(
+    function writeObjectFields(
         data: object,
         ...omitKeys: (string | string[])[]
     ) {
-        forEach(
-            omit(data, attributeMetaKeys, ...omitKeys),
-            recursivelyWriteAttributes
+        forEach(omit(data, attributeMetaKeys, ...omitKeys), (attr, field) =>
+            write(generateField(attr, field, attributeMetaKeys) || "")
         );
-    }
-
-    function recursivelyWriteAttributes(
-        data: string | Attribute,
-        name: string
-    ) {
-        if (isString(data)) {
-            throw new Error(`unexpected string for "${name}"`);
-        }
-
-        function writeAttribute(type: string) {
-            write(`${name}?: ${type};\n`);
-        }
-
-        writeDocComment(
-            data.description,
-            data.dflt == null ? {} : { default: data.dflt }
-        );
-
-        if (data.role === "object") {
-            if (name === "transforms") {
-                writeAttribute("Transform[]");
-            } else if ("items" in data) {
-                // TODO: Recursively create a type for this and reference it.
-                writeAttribute("any[]");
-            } else {
-                const attributes = omit(data, attributeMetaKeys);
-                const objectTypeName = keys(NAMED_OBJECT_TYPES).find(
-                    objectType =>
-                        isEqualUnordered(
-                            NAMED_OBJECT_TYPES[objectType],
-                            keys(attributes)
-                        )
-                );
-                if (objectTypeName != null) {
-                    writeAttribute(objectTypeName);
-                } else {
-                    write(`${name}?: {`);
-                    forEach(attributes, recursivelyWriteAttributes);
-                    write("}");
-                }
-            }
-        } else {
-            const type = getAttributeType(data);
-            if (type == null) {
-                console.log(
-                    `could not generate for valType ${JSON.stringify(
-                        data.valType
-                    )}`
-                );
-            } else {
-                writeAttribute(data.arrayOk ? `OneOrMany<${type}>` : type);
-            }
-        }
     }
 
     function getDataTypeName(traceName: string) {
@@ -307,11 +318,11 @@ export default function generate(schema: any) {
 
     forEach(schema.traces, (trace: AttributedObject, name) => {
         if (trace.meta) {
-            writeDocComment(trace.meta.description);
+            write(generateDocComment(trace.meta.description));
         }
         write(`export interface ${getDataTypeName(name)} {`);
         write(`type: "${trace.attributes.type}";\n`);
-        recursivelyWriteObjectType(trace.attributes, "type");
+        writeObjectFields(trace.attributes, "type");
         write("}\n");
     });
 
@@ -330,19 +341,15 @@ export default function generate(schema: any) {
     );
 
     write("export interface LayoutXAxis {");
-    recursivelyWriteObjectType(schema.layout.layoutAttributes.xaxis);
+    writeObjectFields(schema.layout.layoutAttributes.xaxis);
     write("}\n");
 
     write("export interface LayoutYAxis {");
-    recursivelyWriteObjectType(schema.layout.layoutAttributes.yaxis);
+    writeObjectFields(schema.layout.layoutAttributes.yaxis);
     write("}\n");
 
     write("export interface Layout {");
-    recursivelyWriteObjectType(
-        schema.layout.layoutAttributes,
-        "xaxis",
-        "yaxis"
-    );
+    writeObjectFields(schema.layout.layoutAttributes, "xaxis", "yaxis");
     [
         "xaxis",
         ...range(2, EXPLICIT_AXIS_COUNT + 1).map(i => `xaxis${i}`)
@@ -377,11 +384,11 @@ export default function generate(schema: any) {
 
     forEach(schema.transforms, (transform: AttributedObject, name) => {
         if (transform.meta) {
-            writeDocComment(transform.meta.description);
+            write(generateDocComment(transform.meta.description));
         }
         write(`export interface ${getTransformName(name)} {`);
         write(`type: "${name}";\n`);
-        recursivelyWriteObjectType(transform.attributes);
+        writeObjectFields(transform.attributes);
         write("}\n");
     });
 
