@@ -15,6 +15,7 @@ import {
     values,
     map,
     keys,
+    flatten,
     compact
 } from "lodash";
 
@@ -93,14 +94,13 @@ const namedEnumerations: Record<string, { name: string; values?: string[] }> = {
     }
 };
 
-// TODO: This, for layouts and such.
 const EXPLICIT_AXIS_COUNT = 9;
 
 function isEqualUnordered(a: string[], b: string[]) {
     return isEqual(sortBy(a), sortBy(b));
 }
 
-function generateFlagListType(flags: string[], extras?: string[]) {
+function flagListType(flags: string[], extras?: string[]) {
     const permutations = sortBy(
         range(1, Math.pow(2, flags.length)).map(bitmap =>
             flags.filter((_, index) => (bitmap & (1 << index)) != 0)
@@ -115,9 +115,12 @@ function generateFlagListType(flags: string[], extras?: string[]) {
         .join(" | ");
 }
 
-// TODO: Use this in more places.
-function generateLiteralUnionType(members: (boolean | string | number)[]) {
-    return members.map(m => JSON.stringify(m)).join(" | ");
+function unionType(...members: (string | string[])[]) {
+    return flatten(members).join(" | ");
+}
+
+function literalUnionType(members: (boolean | string | number)[]) {
+    return unionType(members.map(m => JSON.stringify(m)));
 }
 
 function generateDocComment(content: string, tags?: Record<string, string>) {
@@ -125,11 +128,13 @@ function generateDocComment(content: string, tags?: Record<string, string>) {
         return compact([
             "/**",
             content ? ` * ${content}` : undefined,
-            ...map(tags, (value, name) => {
-                if (value != null) {
-                    return ` * @${name} ${JSON.stringify(value)}`;
-                }
-            }),
+            ...map(
+                tags,
+                (value, name) =>
+                    value != null
+                        ? ` * @${name} ${JSON.stringify(value)}`
+                        : undefined
+            ),
             "*/"
         ]).join("\n");
     } else {
@@ -137,7 +142,7 @@ function generateDocComment(content: string, tags?: Record<string, string>) {
     }
 }
 
-function generateType(attribute: Attribute): string | undefined {
+function simpleType(attribute: Attribute): string | undefined {
     if (attribute.valType === "boolean") {
         return "boolean";
     } else if (
@@ -156,10 +161,7 @@ function generateType(attribute: Attribute): string | undefined {
         return "Datum[] | TypedArray";
     } else if (attribute.valType === "string") {
         return attribute.values
-            ? [
-                  ...(attribute.values as string[]).map(v => JSON.stringify(v)),
-                  "string"
-              ].join(" | ")
+            ? unionType(literalUnionType(attribute.values), "string")
             : "string";
     } else if (attribute.valType === "enumerated") {
         const values: string[] = attribute.values;
@@ -178,17 +180,19 @@ function generateType(attribute: Attribute): string | undefined {
 
         // Special-case AxisName because it appears in several positions with slightly different
         // "other" options, and so it's a pain to define named enumerations like other enumerations.
-        return uniq(
-            values.map(v => {
-                if (v === "/^x([2-9]|[1-9][0-9]+)?$/") {
-                    return "AxisName";
-                } else if (v === "/^y([2-9]|[1-9][0-9]+)?$/") {
-                    return "AxisName";
-                } else {
-                    return JSON.stringify(v);
-                }
-            })
-        ).join(" | ");
+        return unionType(
+            uniq(
+                values.map(v => {
+                    if (v === "/^x([2-9]|[1-9][0-9]+)?$/") {
+                        return "AxisName";
+                    } else if (v === "/^y([2-9]|[1-9][0-9]+)?$/") {
+                        return "AxisName";
+                    } else {
+                        return JSON.stringify(v);
+                    }
+                })
+            )
+        );
     } else if (attribute.valType === "flaglist") {
         // At least one flaglist has duplicate values. :/
         const flags = uniq(attribute.flags as string[]);
@@ -198,19 +202,17 @@ function generateType(attribute: Attribute): string | undefined {
         );
 
         return namedFlagList == null
-            ? generateFlagListType(flags, attribute.extras)
-            : [
+            ? flagListType(flags, attribute.extras)
+            : unionType(
                   namedFlagList,
-                  ...((attribute.extras as string[]) || []).map(e =>
-                      JSON.stringify(e)
-                  )
-              ].join(" | ");
+                  literalUnionType(attribute.extras || [])
+              );
     } else if (attribute.valType === "info_array") {
         // TODO: Inspect the types of the items.
         // TODO: Is this actually a tuple type?
         // TODO: Support whatever freeLength is.
         if (isArray(attribute.items)) {
-            // return "[" + Array(data.items.length).map(() => "any").join(", ") + "]";
+            return undefined;
         } else {
             return "any[]";
         }
@@ -221,7 +223,7 @@ function generateType(attribute: Attribute): string | undefined {
     }
 }
 
-function generateComplexType(
+function complexType(
     attribute: Attribute,
     attributeMetaKeys: string[]
 ): string | undefined {
@@ -258,10 +260,10 @@ function generateComplexType(
             }
         }
     } else {
-        const type = generateType(attribute);
+        const type = simpleType(attribute);
         if (type == null) {
             console.warn(
-                `could not generate for valType ${JSON.stringify(
+                `could not generate type for valType ${JSON.stringify(
                     attribute.valType
                 )}`
             );
@@ -281,7 +283,7 @@ function generateField(
     return `${generateDocComment(
         attribute.description,
         attribute.dflt == null ? {} : { default: attribute.dflt }
-    )}\n${fieldName}?: ${generateComplexType(attribute, attributeMetaKeys)};\n`;
+    )}\n${fieldName}?: ${complexType(attribute, attributeMetaKeys)};\n`;
 }
 
 export default function generate(schema: any) {
@@ -311,9 +313,9 @@ export default function generate(schema: any) {
     write(readFileSync(join(__dirname, "globals_d.ts")).toString("utf-8"));
 
     write(
-        `export type Data = ${map(schema.traces, (_, name) =>
-            getDataTypeName(name)
-        ).join(" | ")};`
+        `export type Data = ${unionType(
+            map(schema.traces, (_, name) => getDataTypeName(name))
+        )};`
     );
 
     forEach(schema.traces, (trace: AttributedObject, name) => {
@@ -327,12 +329,12 @@ export default function generate(schema: any) {
     });
 
     forEach(NAMED_FLAG_LISTS, (flags, name) => {
-        write(`type ${name} = ${generateFlagListType(flags)};`);
+        write(`type ${name} = ${flagListType(flags)};`);
     });
     write("");
 
     write(
-        `export type AxisName = ${generateLiteralUnionType([
+        `export type AxisName = ${literalUnionType([
             "x",
             ...range(2, EXPLICIT_AXIS_COUNT + 1).map(i => `x${i}`),
             "y",
@@ -366,19 +368,15 @@ export default function generate(schema: any) {
 
     values(namedEnumerations).map(({ name, values }) => {
         if (values != null) {
-            write(
-                `type ${name} = ${values
-                    .map(v => JSON.stringify(v))
-                    .join(" | ")};`
-            );
+            write(`type ${name} = ${literalUnionType(values)}`);
             write("");
         }
     });
 
     write(
-        `export type Transform = ${map(schema.transforms, (_, name) =>
-            getTransformName(name)
-        ).join(" | ")};`
+        `export type Transform = ${unionType(
+            map(schema.transforms, (_, name) => getTransformName(name))
+        )};`
     );
     write("");
 
