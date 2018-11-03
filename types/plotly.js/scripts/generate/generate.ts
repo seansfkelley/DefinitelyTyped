@@ -4,7 +4,6 @@ import { readFileSync } from "fs";
 import { join } from "path";
 import {
     forEach,
-    isString,
     omit,
     isArray,
     uniq,
@@ -12,11 +11,11 @@ import {
     range,
     sortBy,
     isEqual,
-    values,
     map,
     keys,
     flatten,
-    compact
+    compact,
+    difference
 } from "lodash";
 
 import writer from "./writer";
@@ -85,12 +84,46 @@ const NAMED_FLAG_LISTS: Record<string, string[]> = {
 //
 // This is a bit roundabout, but it makes the generator robust to the enumearations changing values
 // without having to update a literal in the generator. This seems likely for e.g. MarkerSymbol.
-const namedEnumerations: Record<string, { name: string; values?: string[] }> = {
+const inferredEnumerations: Record<
+    string,
+    { name: string; values?: string[] }
+> = {
     gregorian: {
         name: "Calendar"
     },
     "circle-open-dot": {
         name: "MarkerSymbol"
+    }
+};
+
+// TODO: Support merging subsequent appearances into one interface?
+const inferredObjectTypes: Record<
+    string,
+    { name: string; fields?: string[]; type?: string }
+> = {
+    annotation: {
+        name: "Annotation"
+    },
+    tickformatstop: {
+        name: "TickFormatStop"
+    },
+    layer: {
+        name: "Layer"
+    },
+    button: {
+        name: "Button"
+    },
+    dimension: {
+        name: "Dimension"
+    },
+    shape: {
+        name: "Shape"
+    },
+    image: {
+        name: "Image"
+    },
+    slider: {
+        name: "Slider"
     }
 };
 
@@ -167,7 +200,7 @@ function simpleType(attribute: Attribute): string | undefined {
         const values: string[] = attribute.values;
 
         const namedEnumeration = values
-            .map(v => namedEnumerations[v])
+            .map(v => inferredEnumerations[v])
             .find(e => e != null);
         if (namedEnumeration != null) {
             if (namedEnumeration.values == null) {
@@ -175,6 +208,12 @@ function simpleType(attribute: Attribute): string | undefined {
                 return namedEnumeration.name;
             } else if (isEqualUnordered(namedEnumeration.values, values)) {
                 return namedEnumeration.name;
+            } else {
+                console.warn(
+                    `unexpected mismatch for inferred enumeration "${
+                        namedEnumeration.name
+                    }"; cannot use same type name`
+                );
             }
         }
 
@@ -236,12 +275,53 @@ function complexType(
             }
             const itemName = Object.keys(attribute.items)[0];
             if (itemName === "transform") {
+                // Special-case this one because transforms are a top-level type like traces, rather than
+                // the rest of the types that use "items".
                 return "Transform[]";
             } else {
-                console.warn(
-                    `using fall-back any[] type for item-type "${itemName}"`
-                );
-                return "any[]";
+                const inferredObjectType = inferredObjectTypes[itemName];
+
+                if (inferredObjectType != null) {
+                    const objectFields = difference(
+                        Object.keys(attribute.items[itemName]),
+                        attributeMetaKeys
+                    );
+                    if (inferredObjectType.fields == null) {
+                        inferredObjectType.fields = objectFields;
+                        inferredObjectType.type = complexType(
+                            attribute.items[itemName],
+                            attributeMetaKeys
+                        );
+                        return `${inferredObjectType.name}[]`;
+                    } else if (
+                        isEqualUnordered(
+                            inferredObjectType.fields,
+                            objectFields
+                        )
+                    ) {
+                        return `${inferredObjectType.name}[]`;
+                    } else {
+                        const one = difference(
+                            inferredObjectType.fields,
+                            attributeMetaKeys
+                        );
+                        const two = difference(
+                            Object.keys(attribute.items[itemName]),
+                            attributeMetaKeys
+                        );
+                        console.log(difference(one, two));
+                        console.log(difference(two, one));
+                        console.warn(
+                            `unexpected mismatch for inferred object type "${itemName}"; cannot use same type name`
+                        );
+                        return "any[]";
+                    }
+                } else {
+                    console.warn(
+                        `using fall-back any[] type for item-type "${itemName}"`
+                    );
+                    return "any[]";
+                }
             }
         } else {
             const attributes = omit(attribute, attributeMetaKeys);
@@ -366,13 +446,6 @@ export default function generate(schema: any) {
     });
     write("}\n");
 
-    values(namedEnumerations).map(({ name, values }) => {
-        if (values != null) {
-            write(`type ${name} = ${literalUnionType(values)}`);
-            write("");
-        }
-    });
-
     write(
         `export type Transform = ${unionType(
             map(schema.transforms, (_, name) => getTransformName(name))
@@ -388,6 +461,21 @@ export default function generate(schema: any) {
         write(`type: "${name}";\n`);
         writeObjectFields(transform.attributes);
         write("}\n");
+    });
+
+    forEach(inferredEnumerations, ({ name, values }) => {
+        if (values != null) {
+            write(`type ${name} = ${literalUnionType(values)};`);
+            write("");
+        }
+    });
+
+    forEach(inferredObjectTypes, ({ name, type }) => {
+        if (type != null) {
+            write(`interface ${name}`);
+            write(type);
+            write("\n");
+        }
     });
 
     write(readFileSync(join(__dirname, "events_d.ts")).toString("utf-8"));

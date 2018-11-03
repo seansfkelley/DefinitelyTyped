@@ -48,8 +48,8 @@ export interface PlotRelayoutEvent {
 
 export interface ClickAnnotationEvent {
     index: number;
-    annotation: Annotations;
-    fullAnnotation: Annotations;
+    annotation: Annotation;
+    fullAnnotation: Annotation;
     event: MouseEvent;
 }
 
